@@ -5,107 +5,23 @@
 ///////////////////////////////////////////////////////
 //////////////////// COMMUNICATION ////////////////////
 ///////////////////////////////////////////////////////
+#include <TCSPC.h>
+#include <CommandHandler.h>
 
-typedef struct {
-  String content;
-  volatile uint32_t value[4];
-}Command;
+TCSPC counter(0)
+CommandHandler command1("*IDN?\n", 1, &get_id)
 
-Command process_command() {
-    Command Comm;
-    char number_char[10];
-    char *eprt;
-    int ascii;
-    int i=0, j=0;
-
-    while(Serial.available()>0) {
-      ascii=Serial.peek();
-      if(ascii != 13 or ascii != 10) { //end of the command string
-
-        if (ascii > 47 && ascii < 58) { //In the char is a number
-          delay(50);
-            do {
-              number_char[i]= Serial.read(); //save the number char neatly
-              ascii = Serial.peek();
-              i++;
-            } while (ascii > 47 && ascii < 58); //while there are numbers
-
-          i=0;
-          long int var = strtol(number_char,&eprt,10);
-          Comm.value[j] = var; // Save the number string as a 16-bit integer
-
-          for (int k=0; k<10;k++){
-            number_char[k]=0;
-          }
-          j++;
-        }
-        else { // In case the char is a letter
-          char carac = Serial.read();
-          if (carac > 96 && carac < 123){
-            carac -= 32; //Keep only upper-case letters
-          }
-          Comm.content.concat(carac); //concatenate the chars
-        }
-      }
-      delay(10);
-    }
-
-    return Comm;
+void get_id(int value){
+  Serial.println("r:FEDERAL UNIVERSITY OF PERNAMBUCO");
+  Serial.println("r:PHYSICS DEPARTMENT");
+  Serial.println("r:DIGITAL TIME-CORRELATED SINGLE PHOTON COUNTER");
+  Serial.println(value[0])
 }
-
-void send_data(char id, String data){
-  while (Serial.availableForWrite() < sizeof(data)){}
-  Serial.print(id);
-  Serial.println(data);
-  delay(50);
-}
-
-//////////////////////////////////////////////
-////////////// GENERAL CONFIG ////////////////
-//////////////////////////////////////////////
 
 void setup(){
-  Serial.begin(115200);
-  pinMode(2,INPUT_PULLUP); // sinal chopper
-  //CONFIGURAÇÕES DO PWM
-  PMC->PMC_PCER0 = PMC_PCER0_PID27;                // interrupção TC0 selecionada - habilita o controle e gerencialmento de tensão
-  TC0->TC_CHANNEL[0].TC_CCR = TC_CCR_CLKDIS ;      // lock do timer desabilitado para inicialização
-  TC0->TC_CHANNEL[0].TC_CMR = TC_CMR_TCCLKS_XC0;   // clock do contador selecionado : XC0
-  TC0->TC_BMR = TC_BMR_TC0XC0S_TCLK0;              // sinal conectado ao XC0: TCLK0=PB26=Arduino_Due_Digital_Pin_22 https://www.arduino.cc/en/Hacking/PinMappingSAM3X
+  SerialUSB.begin(9600); //Native USB port
+  while(!SerialUSB);
 }
-
-void volatile_delay(unsigned long time_delay){
-  if (time_delay >= 1000){
-    delayMicroseconds(time_delay/1000);
-  }
-  else {
-    volatile long j;
-    unsigned long cycles = round(time_delay*6.44659/1000); // Converting from nanoseconds to clock cycles
-    for(j=0;j<cycles;j++){}
-  }
-}
-
-void start_counter(){
-  unsigned long timeout = 84000000; // 1s max para o próximo pulso de clock
-  unsigned long k=0;
-  unsigned long zero;
-  // TC_CV só zera após o primeiro pulso externo após o sinal de reset. Aguarda até que isto aconteça.
-  // Ver pag. 862, 36.6.6 (Trigger) no manual do SAM3X
-  TC0->TC_CHANNEL[0].TC_CCR = TC_CCR_SWTRG      // sowftware trigger: reset counter, start clock
-                            | TC_CCR_CLKEN;     // counter clock enabled
-  zero = TC0->TC_CHANNEL[0].TC_CV;
-  while((TC0->TC_CHANNEL[0].TC_CV == zero)&&(k<timeout)){
-    k++;
-  }//contador zerado
-}
-
-uint32_t get_counts(){
-  return TC0->TC_CHANNEL[0].TC_CV;
-}
-
-////////////////////////////////////////
-////////////// TRIGGERS ////////////////
-////////////////////////////////////////
 
 void pwm1(uint16_t value, uint16_t duty){
   // GERADOR DE ONDA: PINO DIGITAL 7
@@ -133,18 +49,41 @@ void pwm2(uint16_t value, uint16_t duty){
   REG_PWM_ENA = 1<<5;                 // habilita o canal do PWM (pin 8 = PWML5)
 }
 
-void TTL_pulse(unsigned long period){
-  PIOC->PIO_SODR = (1<<22); //set C22/Pin8 high
-  volatile_delay(period); // approx 500 ns
-  PIOC->PIO_CODR = (1<<22); //set C22/Pin8 low
+///////////////////////////////////////////////
+////////////// VOLATILE DELAY /////////////////
+///////////////////////////////////////////////
+
+void volatile_delay(unsigned long time_delay){
+  if (time_delay >= 1000){
+    delayMicroseconds(time_delay/1000);
+  }
+  else {
+    volatile long j;
+    unsigned long cycles = round(time_delay*6.44659/1000); // Converting from nanoseconds to clock cycles
+    for(j=0;j<cycles;j++){}
+  }
 }
 
-/////////////////////////////////////////////
-////////////// PHASE LOCKERS ////////////////
-/////////////////////////////////////////////
+/////////////////////////////////////////
+////////////// TRIGGERS /////////////////
+/////////////////////////////////////////
 
-bool trigger_on(){
-  return ((PIOB->PIO_PDSR >> 25 ) & 1);
+void TCSPC::set_trigger(int pin_num){
+  pinMode(pin, INPUT_PULLUP); // sinal trigger
+}
+
+bool TCSPC::get_trigger_status(int pin_num){
+  return ((digitalPinToPort(pin_num) -> PIO_PDSR >> digitalPinToBitMask(pin_num)) & 1);
+}
+
+/////////////////////////////////////////
+////////////// ACTUATORS ////////////////
+/////////////////////////////////////////
+
+void TCSPC::LVTTL_pulse(int pin_num, unsigned long period){
+  digitalPinToPort(pin_num) -> PIO_SODR = (1<<digitalPinToBitMask(pin_num)); //set C22/Pin8 high
+  volatile_delay(period); // approx 500 ns
+  digitalPinToPort(pin_num) -> PIO_CODR = (1<<digitalPinToBitMask(pin_num)); //set C22/Pin8 low
 }
 
 /////////////////////////////////////////////////////
