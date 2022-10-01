@@ -13,27 +13,29 @@ May a signal conditioning circuit be necessary.
 One can use the several Timer/Counter Due channels (nine in total) to create trigger signals or to attach interrupts.
 This skecth has two working modes, but it is not limited to it:
 ----- Counter Mode: 
-      Command: 'CNT arg1'. arg1 is the counting time interval in microseconds.
+      Commands: 'CNT_STR arg1'. arg1 is the counting time interval in microseconds.
+                'CNT_GET'. Return the last stored count value
       
       Uses Timer0 for continuously counting from the photodetector
       Uses Timer1 for synchronized interrupts at every arg1 microseconds to save data.
 
 ----- BoxCar Mode: 
-      Command: 'BXC arg1 arg2 arg3'. 
-                arg1 is the gate time interval in microseconds.
-                arg2 is the length of the buffer used to save the data.
-                arg3 is the number of repetitions of the routine.
+      Commands: 'BXC arg1 arg2 arg3'. 
+                 arg1 is the gate time interval in microseconds.
+                 arg2 is the length of the buffer used to save the data.
+                 arg3 is the number of repetitions of the routine.
       
       Uses Timer0 for continuously counting from the photodetector.
       Uses Timer1 for synchronized interrupts at every arg1 microseconds to save data.
       Uses an External Pin for synchronized interrupts (trigger) at RISING edge.
       
 
-PINO DETECTOR DE PULSO:       PINO DIGITAL 22
-PINO ENTRADA DO TRIGGER:      PINO DIGITAL 2
+TC0 EXTERNAL CLOCK PIN:       DIGITAL PIN 22
+BOXCAR EXTERNAL TRIGGER:      DIGITAL PIN 2 
+
                               
-PINO GERADOR DE ONDA:         PINO DIGITAL 7
-                              PINO DIGITAL 8
+WAVE GENERATORS FOR TEST:     DIGITAL PIN 7
+                              DIGITAL PIN 8
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////*/
 
 #include <DueTimer.h>
@@ -45,13 +47,15 @@ int cmd_counter_start();
 int cmd_counter_get();
 int cmd_boxCar_start();
 int cmd_stop_interrupts();
+int cmd_help();
 
 CommandType Commands[] = {
   {"*IDN?", &cmd_idn, "Device identification"},
-  {"CNT_STR", &cmd_counter_start, "Counter Mode"},
-  {"CNT_GET", &cmd_counter_get, "Counter Mode"},
-  {"BXC", &cmd_boxCar_start, "BoxCar"},
+  {"CNT_STR", &cmd_counter_start, "Counter Mode - Start counting."},
+  {"CNT_GET", &cmd_counter_get, "Counter Mode - Return the last stored count value"},
+  {"BXC", &cmd_boxCar_start, "BoxCar Mode - Return the time-resolved data array."},
   {"STOP", &cmd_stop_interrupts, "Stop all interrupts"},
+  {"HELP", &cmd_help, "Sees all the functions and descriptions"},
 };
 
 CLI command_line(Commands, sizeof(Commands)/sizeof(Commands[0]));
@@ -61,10 +65,7 @@ TCSPC counter;
 
 void setup(){
   SerialUSB.begin(115200);
-  //while (!SerialUSB.available());
   command_line.begin(&SerialUSB);
-  
-  counter.start_counter();
 
   pinMode(BXC_PIN_TRIGGER, INPUT);
   pwm1(84,42); //1MHz
@@ -87,6 +88,7 @@ volatile uint32_t prev_tc_cv;
 volatile uint32_t diff_tc_cv;
 
 int cmd_counter_start(){
+  counter.start_counter();
   Timer1.attachInterrupt(handler_counter_mode);
   Timer1.setPeriod(atof(command_line.args[1]));
   Timer1.start();
@@ -187,6 +189,18 @@ void write_ulong(uint32_t value){
 
 int cmd_stop_interrupts(){
   Timer1.stop();
+}
+
+int cmd_help(){
+  SerialUSB.println("You asked for help");
+  SerialUSB.println("Defined Functions - Description");
+  for(int i=0; i<sizeof(Commands)/sizeof(Commands[0]); i++){
+    SerialUSB.print("> ");
+    SerialUSB.print(Commands[i].comm_name);
+    SerialUSB.print(" - ");
+    SerialUSB.print(Commands[i].description);
+    SerialUSB.println("");
+  }
 }
 
 void pwm1(uint16_t value, uint16_t duty){
