@@ -27,7 +27,7 @@ class TCSPC():
     
     def start_CounterMode(self, gate_time):
         b_gate = str(gate_time).encode('utf-8')
-        self.ser.write(b'CNT_SRT '+ b_gate)
+        self.ser.write(b'CNT_STR '+ b_gate)
         
     def get_counts(self):
         self.ser.write(b'CNT_GET')
